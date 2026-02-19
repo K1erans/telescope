@@ -1,0 +1,121 @@
+{
+  "name": "pathfuzzy",
+  "displayName": "PathFuzzy Finder",
+  "description": "Path-prefix scoped fuzzy file search for VS Code, inspired by Telescope",
+  "version": "0.1.0",
+  "publisher": "pathfuzzy",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "fuzzy",
+    "file",
+    "search",
+    "telescope",
+    "picker"
+  ],
+  "activationEvents": [
+    "onCommand:pathfuzzy.findFiles"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "pathfuzzy.findFiles",
+        "title": "PathFuzzy: Find Files"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "pathfuzzy.findFiles",
+        "mac": "cmd+shift+j",
+        "key": "ctrl+alt+p",
+        "when": "!terminalFocus"
+      }
+    ],
+    "configuration": {
+      "title": "PathFuzzy",
+      "properties": {
+        "pathfuzzy.maxResults": {
+          "type": "number",
+          "default": 200,
+          "description": "Maximum number of results to display in the picker."
+        },
+        "pathfuzzy.debounceMs": {
+          "type": "number",
+          "default": 100,
+          "description": "Debounce delay in milliseconds for input changes."
+        },
+        "pathfuzzy.showPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Preview files as you navigate through picker results."
+        },
+        "pathfuzzy.defaultExcludes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "node_modules",
+            ".git",
+            "dist",
+            "out",
+            ".next"
+          ],
+          "description": "Glob patterns passed to ripgrep as --glob !<pattern> excludes."
+        },
+        "pathfuzzy.inventoryMode": {
+          "type": "string",
+          "enum": [
+            "workspaceCache",
+            "scopedQuery"
+          ],
+          "default": "workspaceCache",
+          "description": "File inventory strategy. 'workspaceCache' fetches all files once and caches them. 'scopedQuery' runs a new query per scope prefix."
+        },
+        "pathfuzzy.sortWhenEmpty": {
+          "type": "string",
+          "enum": [
+            "alphabetical",
+            "recent"
+          ],
+          "default": "alphabetical",
+          "description": "Sort order when the query is empty."
+        },
+        "pathfuzzy.includeHidden": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include hidden files (starting with .) in results."
+        },
+        "pathfuzzy.allowDotDot": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow ../ in path prefix input to traverse above workspace root."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTests.js",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "eslint": "^8.56.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.3"
+  }
+}
