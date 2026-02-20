@@ -142,6 +142,19 @@ function toForwardSlashes(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+export function buildValidDirSet(allFiles: FileEntry[]): Set<string> {
+  const validDirs = new Set<string>();
+  for (const f of allFiles) {
+    const parts = f.relativePath.split('/');
+    let prefix = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      prefix += parts[i] + '/';
+      validDirs.add(prefix);
+    }
+  }
+  return validDirs;
+}
+
 /**
  * Parses input into a scope prefix and query.
  * Validates scope against the actual rg file list — not fs.stat —
@@ -149,7 +162,8 @@ function toForwardSlashes(p: string): string {
  */
 export function parseInput(
   input: string,
-  allFiles: FileEntry[]
+  allFiles: FileEntry[],
+  validDirs: ReadonlySet<string> = buildValidDirSet(allFiles)
 ): { scopePrefix: string; query: string } {
   const normalized = input.replace(/\\/g, '/');
 
@@ -162,18 +176,6 @@ export function parseInput(
 
   if (slashPositions.length === 0) {
     return { scopePrefix: '', query: normalized };
-  }
-
-  // Build a set of all directory prefixes that actually contain rg-visible files
-  // e.g. if "tests/foo.py" exists, "tests/" is a valid scope
-  const validDirs = new Set<string>();
-  for (const f of allFiles) {
-    const parts = f.relativePath.split('/');
-    let prefix = '';
-    for (let i = 0; i < parts.length - 1; i++) {
-      prefix += parts[i] + '/';
-      validDirs.add(prefix);
-    }
   }
 
   // Try from longest to shortest prefix

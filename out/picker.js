@@ -59,8 +59,8 @@ async function openPicker(searcher, workspaceFolder) {
     qp.matchOnDescription = false;
     qp.matchOnDetail = false;
     let debounceTimer;
-    let lastScopePrefix = '';
-    let previewDisposable;
+    let cachedAllFiles;
+    let cachedValidDirs;
     const updateItems = async (value) => {
         qp.busy = true;
         // Fetch all files first, then parse input against the real file list
@@ -71,7 +71,11 @@ async function openPicker(searcher, workspaceFolder) {
         catch {
             allFiles = [];
         }
-        const { scopePrefix, query } = (0, search_1.parseInput)(value, allFiles);
+        if (cachedAllFiles !== allFiles) {
+            cachedAllFiles = allFiles;
+            cachedValidDirs = (0, search_1.buildValidDirSet)(allFiles);
+        }
+        const { scopePrefix, query } = (0, search_1.parseInput)(value, allFiles, cachedValidDirs);
         const candidates = scopePrefix
             ? allFiles.filter(f => f.relativePath.startsWith(scopePrefix))
             : allFiles;
@@ -90,7 +94,6 @@ async function openPicker(searcher, workspaceFolder) {
             qp.busy = false;
             return;
         }
-        lastScopePrefix = scopePrefix;
         let items;
         if (!query) {
             if (scopePrefix) {
@@ -183,7 +186,6 @@ async function openPicker(searcher, workspaceFolder) {
         if (previewThrottle !== undefined) {
             clearTimeout(previewThrottle);
         }
-        previewDisposable?.dispose();
         qp.dispose();
     });
     qp.show();

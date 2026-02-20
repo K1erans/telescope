@@ -69,21 +69,33 @@ function computeBestMatch(
   const n = candidate.length;
   const m = lowerQuery.length;
 
-  // dp[ci] = best score for matching lowerQuery[0..qi] with last match at ci
-  // We maintain two arrays: previous query char level and current.
-  // Also store backpointers to reconstruct positions.
-
-  // scores[ci] = best score matching query[0..qi-1] with last char matched at ci
-  // prev[ci] = previous matched index (backpointer)
-
-  interface Cell {
-    score: number;
-    prevIdx: number; // index in candidate where query[qi-1] was matched
+  if (m > n) {
+    return null;
   }
 
-  // For each query character, compute best scores
-  let prev: Cell[] = new Array(n).fill(null).map(() => ({ score: -Infinity, prevIdx: -1 }));
-  let curr: Cell[] = new Array(n).fill(null).map(() => ({ score: -Infinity, prevIdx: -1 }));
+  const NEG_INF = Number.NEGATIVE_INFINITY;
+
+  // Bonuses that depend only on candidate position, regardless of query index.
+  const perCharBonus = new Array<number>(n).fill(0);
+  for (let ci = 0; ci < n; ci++) {
+    let bonus = 0;
+    if (isSegmentStart(candidate, ci)) {
+      bonus += SCORE_SEGMENT_START_BONUS;
+    }
+    if (ci > 0 && isUpperCase(candidate[ci]) && !isUpperCase(candidate[ci - 1])) {
+      bonus += SCORE_CAMEL_BONUS;
+    }
+    perCharBonus[ci] = bonus;
+  }
+
+  // prevScores[ci] = best score for matching query[0..qi] ending at candidate[ci]
+  let prevScores = new Array<number>(n).fill(NEG_INF);
+
+  // prevIdxLevels[qi][ci] = predecessor candidate index for query char qi at ci
+  const prevIdxLevels: Int32Array[] = new Array(m);
+  const level0Prev = new Int32Array(n);
+  level0Prev.fill(-1);
+  prevIdxLevels[0] = level0Prev;
 
   // Initialize: match query[0] against each candidate position
   let unmatchedLead = 0;
@@ -97,156 +109,70 @@ function computeBestMatch(
     if (ci === 0) {
       score += SCORE_START_BONUS;
     }
-    if (isSegmentStart(candidate, ci)) {
-      score += SCORE_SEGMENT_START_BONUS;
-    }
-    if (ci > 0 && isUpperCase(candidate[ci]) && !isUpperCase(candidate[ci - 1])) {
-      score += SCORE_CAMEL_BONUS;
-    }
-    prev[ci] = { score, prevIdx: -1 };
+    score += perCharBonus[ci];
+    prevScores[ci] = score;
     unmatchedLead = 0;
   }
 
   // Fill in for remaining query characters
   for (let qi = 1; qi < m; qi++) {
-    curr = new Array(n).fill(null).map(() => ({ score: -Infinity, prevIdx: -1 }));
+    const currScores = new Array<number>(n).fill(NEG_INF);
+    const currPrevIdx = new Int32Array(n);
+    currPrevIdx.fill(-1);
+
+    // Best predecessor for each ci can be tracked incrementally.
+    let bestPrevScore = NEG_INF;
+    let bestPrevIdx = -1;
+    const minPrevIdx = qi - 1;
 
     for (let ci = qi; ci < n; ci++) {
-      if (lowerCandidate[ci] !== lowerQuery[qi]) {
-        continue;
+      const pi = ci - 1;
+      if (pi >= minPrevIdx && prevScores[pi] > bestPrevScore) {
+        bestPrevScore = prevScores[pi];
+        bestPrevIdx = pi;
       }
 
-      // Find best predecessor in prev[0..ci-1]
-      let bestPrevScore = -Infinity;
-      let bestPrevIdx = -1;
-      for (let pi = qi - 1; pi < ci; pi++) {
-        if (prev[pi].score > bestPrevScore) {
-          bestPrevScore = prev[pi].score;
-          bestPrevIdx = pi;
-        }
-      }
-
-      if (bestPrevScore === -Infinity) {
+      if (lowerCandidate[ci] !== lowerQuery[qi] || bestPrevScore === NEG_INF) {
         continue;
       }
 
       let score = bestPrevScore + SCORE_MATCH;
-
-      // Contiguous bonus
       if (bestPrevIdx === ci - 1) {
         score += SCORE_CONTIGUOUS_BONUS;
       }
+      score += perCharBonus[ci];
 
-      // Segment start bonus
-      if (isSegmentStart(candidate, ci)) {
-        score += SCORE_SEGMENT_START_BONUS;
-      }
-
-      // CamelCase bonus
-      if (ci > 0 && isUpperCase(candidate[ci]) && !isUpperCase(candidate[ci - 1])) {
-        score += SCORE_CAMEL_BONUS;
-      }
-
-      curr[ci] = { score, prevIdx: bestPrevIdx };
+      currScores[ci] = score;
+      currPrevIdx[ci] = bestPrevIdx;
     }
 
-    prev = curr;
+    prevScores = currScores;
+    prevIdxLevels[qi] = currPrevIdx;
   }
 
   // Find best final position
-  let bestScore = -Infinity;
+  let bestScore = NEG_INF;
   let bestEndIdx = -1;
   for (let ci = 0; ci < n; ci++) {
-    if (prev[ci].score > bestScore) {
-      bestScore = prev[ci].score;
+    if (prevScores[ci] > bestScore) {
+      bestScore = prevScores[ci];
       bestEndIdx = ci;
     }
   }
 
-  if (bestEndIdx === -1 || bestScore === -Infinity) {
+  if (bestEndIdx === -1 || bestScore === NEG_INF) {
     return null;
   }
-
-  // Apply length penalty
-  bestScore += n * PENALTY_LENGTH;
 
   // Reconstruct positions
-  const positions: number[] = [];
+  const positions = new Array<number>(m);
   let idx = bestEndIdx;
-  let level = curr; // points to the last filled 'prev' after the loop
-
-  // Re-run DP keeping all levels to reconstruct path
-  // Simpler: re-run forward reconstruction
-  const allLevels: Cell[][] = [];
-
-  {
-    const l0: Cell[] = new Array(n).fill(null).map(() => ({ score: -Infinity, prevIdx: -1 }));
-    let ul = 0;
-    for (let ci = 0; ci < n; ci++) {
-      if (lowerCandidate[ci] !== lowerQuery[0]) {
-        ul++;
-        continue;
-      }
-      let s = SCORE_MATCH + ul * PENALTY_UNMATCHED_LEAD;
-      if (ci === 0) { s += SCORE_START_BONUS; }
-      if (isSegmentStart(candidate, ci)) { s += SCORE_SEGMENT_START_BONUS; }
-      if (ci > 0 && isUpperCase(candidate[ci]) && !isUpperCase(candidate[ci - 1])) { s += SCORE_CAMEL_BONUS; }
-      l0[ci] = { score: s, prevIdx: -1 };
-      ul = 0;
-    }
-    allLevels.push(l0);
-  }
-
-  for (let qi = 1; qi < m; qi++) {
-    const lqi: Cell[] = new Array(n).fill(null).map(() => ({ score: -Infinity, prevIdx: -1 }));
-    const prevLevel = allLevels[qi - 1];
-
-    for (let ci = qi; ci < n; ci++) {
-      if (lowerCandidate[ci] !== lowerQuery[qi]) { continue; }
-
-      let bestPS = -Infinity;
-      let bestPI = -1;
-      for (let pi = qi - 1; pi < ci; pi++) {
-        if (prevLevel[pi].score > bestPS) {
-          bestPS = prevLevel[pi].score;
-          bestPI = pi;
-        }
-      }
-      if (bestPS === -Infinity) { continue; }
-
-      let s = bestPS + SCORE_MATCH;
-      if (bestPI === ci - 1) { s += SCORE_CONTIGUOUS_BONUS; }
-      if (isSegmentStart(candidate, ci)) { s += SCORE_SEGMENT_START_BONUS; }
-      if (ci > 0 && isUpperCase(candidate[ci]) && !isUpperCase(candidate[ci - 1])) { s += SCORE_CAMEL_BONUS; }
-
-      lqi[ci] = { score: s, prevIdx: bestPI };
-    }
-    allLevels.push(lqi);
-  }
-
-  // Reconstruct from last level
-  idx = -1;
-  bestScore = -Infinity;
-  const lastLevel = allLevels[m - 1];
-  for (let ci = 0; ci < n; ci++) {
-    if (lastLevel[ci].score > bestScore) {
-      bestScore = lastLevel[ci].score;
-      idx = ci;
-    }
-  }
-
-  if (idx === -1) {
-    return null;
-  }
-
-  bestScore += n * PENALTY_LENGTH;
-
   for (let qi = m - 1; qi >= 0; qi--) {
-    positions.unshift(idx);
-    idx = allLevels[qi][idx].prevIdx;
+    positions[qi] = idx;
+    idx = prevIdxLevels[qi][idx];
   }
 
-  return { score: bestScore, positions };
+  return { score: bestScore + n * PENALTY_LENGTH, positions };
 }
 
 function isSegmentStart(candidate: string, ci: number): boolean {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { FileSearcher, FileEntry, parseInput } from './search';
+import { FileSearcher, FileEntry, buildValidDirSet, parseInput } from './search';
 import { scoreFile } from './fuzzy';
 
 interface FileQuickPickItem extends vscode.QuickPickItem {
@@ -37,8 +37,8 @@ export async function openPicker(
   qp.matchOnDetail = false;
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-  let lastScopePrefix = '';
-  let previewDisposable: vscode.Disposable | undefined;
+  let cachedAllFiles: FileEntry[] | undefined;
+  let cachedValidDirs: Set<string> | undefined;
 
   const updateItems = async (value: string) => {
     qp.busy = true;
@@ -51,7 +51,12 @@ export async function openPicker(
       allFiles = [];
     }
 
-    const { scopePrefix, query } = parseInput(value, allFiles);
+    if (cachedAllFiles !== allFiles) {
+      cachedAllFiles = allFiles;
+      cachedValidDirs = buildValidDirSet(allFiles);
+    }
+
+    const { scopePrefix, query } = parseInput(value, allFiles, cachedValidDirs);
 
     const candidates = scopePrefix
       ? allFiles.filter(f => f.relativePath.startsWith(scopePrefix))
@@ -72,8 +77,6 @@ export async function openPicker(
       qp.busy = false;
       return;
     }
-
-    lastScopePrefix = scopePrefix;
 
     let items: FileQuickPickItem[];
 
@@ -167,7 +170,6 @@ export async function openPicker(
   qp.onDidHide(() => {
     if (debounceTimer !== undefined) { clearTimeout(debounceTimer); }
     if (previewThrottle !== undefined) { clearTimeout(previewThrottle); }
-    previewDisposable?.dispose();
     qp.dispose();
   });
 

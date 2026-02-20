@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FileSearcher = void 0;
+exports.buildValidDirSet = buildValidDirSet;
 exports.parseInput = parseInput;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
@@ -138,12 +139,24 @@ exports.FileSearcher = FileSearcher;
 function toForwardSlashes(p) {
     return p.replace(/\\/g, '/');
 }
+function buildValidDirSet(allFiles) {
+    const validDirs = new Set();
+    for (const f of allFiles) {
+        const parts = f.relativePath.split('/');
+        let prefix = '';
+        for (let i = 0; i < parts.length - 1; i++) {
+            prefix += parts[i] + '/';
+            validDirs.add(prefix);
+        }
+    }
+    return validDirs;
+}
 /**
  * Parses input into a scope prefix and query.
  * Validates scope against the actual rg file list — not fs.stat —
  * so gitignored directories like __pycache__ are never matched.
  */
-function parseInput(input, allFiles) {
+function parseInput(input, allFiles, validDirs = buildValidDirSet(allFiles)) {
     const normalized = input.replace(/\\/g, '/');
     const slashPositions = [];
     for (let i = 0; i < normalized.length; i++) {
@@ -153,17 +166,6 @@ function parseInput(input, allFiles) {
     }
     if (slashPositions.length === 0) {
         return { scopePrefix: '', query: normalized };
-    }
-    // Build a set of all directory prefixes that actually contain rg-visible files
-    // e.g. if "tests/foo.py" exists, "tests/" is a valid scope
-    const validDirs = new Set();
-    for (const f of allFiles) {
-        const parts = f.relativePath.split('/');
-        let prefix = '';
-        for (let i = 0; i < parts.length - 1; i++) {
-            prefix += parts[i] + '/';
-            validDirs.add(prefix);
-        }
     }
     // Try from longest to shortest prefix
     for (let i = slashPositions.length - 1; i >= 0; i--) {

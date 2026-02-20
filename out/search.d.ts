@@ -14,12 +14,13 @@ export declare class FileSearcher {
     private fetchWithRipgrep;
     clearCache(): void;
 }
+export declare function buildValidDirSet(allFiles: FileEntry[]): Set<string>;
 /**
  * Parses input into a scope prefix and query.
  * Validates scope against the actual rg file list — not fs.stat —
  * so gitignored directories like __pycache__ are never matched.
  */
-export declare function parseInput(input: string, allFiles: FileEntry[]): {
+export declare function parseInput(input: string, allFiles: FileEntry[], validDirs?: ReadonlySet<string>): {
     scopePrefix: string;
     query: string;
 };
