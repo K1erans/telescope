@@ -1,11 +1,12 @@
 {
   "name": "pathfuzzy",
   "displayName": "PathFuzzy Finder",
-  "description": "Path-prefix scoped fuzzy file search for VS Code, inspired by Telescope",
+  "description": "Path-prefix scoped fuzzy file search for VS Code and Cursor, inspired by Telescope",
   "version": "0.1.0",
   "publisher": "pathfuzzy",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.85.0",
+    "cursor": "^1.0.0"
   },
   "categories": [
     "Other"
@@ -15,7 +16,8 @@
     "file",
     "search",
     "telescope",
-    "picker"
+    "picker",
+    "cursor"
   ],
   "activationEvents": [
     "onCommand:pathfuzzy.findFiles"
@@ -31,8 +33,8 @@
     "keybindings": [
       {
         "command": "pathfuzzy.findFiles",
-        "mac": "cmd+shift+j",
-        "key": "ctrl+alt+p",
+        "mac": "cmd+ctrl+7",
+        "key": "ctrl+alt+7",
         "when": "!terminalFocus"
       }
     ],
