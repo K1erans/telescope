@@ -12,7 +12,7 @@
 - `npm run watch`: incremental TypeScript build during development.
 - `npm run lint`: ESLint for `src/**/*.ts`.
 - `npm test`: compiles first, then runs extension tests via `out/test/runTests.js`.
-- In VS Code, press `F5` to launch an Extension Development Host for manual testing.
+- The extension supports both VS Code and Cursor. Press `F5` to launch an Extension Development Host in whichever editor you are using.
 
 ## Coding Style & Naming Conventions
 - Language: TypeScript (`strict` mode enabled in `tsconfig.json`).
