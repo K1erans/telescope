@@ -122,8 +122,7 @@ suite('scoreFile', () => {
     });
     test('empty query always matches with score 0', () => {
         const result = (0, fuzzy_1.scoreFile)('src/foo/bar.ts', 'bar.ts', '');
-        assert.ok(result !== null);
-        assert.strictEqual(result.score, 0);
+        assert.strictEqual(result, 0);
     });
     test('filename match scores at least as well as path-only match for short query', () => {
         // Query "btn" — "Button.tsx" filename match should be preferred over deep path match
@@ -132,8 +131,95 @@ suite('scoreFile', () => {
         assert.ok(r1 !== null);
         assert.ok(r2 !== null);
         // Both should match; exact expectation is that they both have positive scores
-        assert.ok(r1.score > 0);
-        assert.ok(r2.score > 0);
+        assert.ok(r1 > 0);
+        assert.ok(r2 > 0);
+    });
+    test('returns a score rather than unused match positions', () => {
+        const result = (0, fuzzy_1.scoreFile)('src/components/Button.tsx', 'Button.tsx', 'btn');
+        assert.strictEqual(typeof result, 'number');
+    });
+    test('score-only ranking matches the existing fuzzy scoring semantics', () => {
+        const cases = [
+            ['src/components/Button.tsx', 'Button.tsx', 'btn'],
+            ['src/far/foo-file.ts', 'foo-file.ts', 'foo'],
+            ['deep/path/MyWidget.tsx', 'MyWidget.tsx', 'widget'],
+            ['src/alpha/beta.ts', 'beta.ts', 'sabt'],
+        ];
+        for (const [relativePath, filename, query] of cases) {
+            const pathMatch = (0, fuzzy_1.fuzzyMatch)(relativePath, query);
+            const filenameMatch = (0, fuzzy_1.fuzzyMatch)(filename, query);
+            let expected;
+            if (!pathMatch && !filenameMatch) {
+                expected = null;
+            }
+            else if (!pathMatch) {
+                expected = filenameMatch.score;
+            }
+            else if (!filenameMatch) {
+                expected = pathMatch.score;
+            }
+            else {
+                expected = Math.max(pathMatch.score, filenameMatch.score + 10);
+            }
+            assert.strictEqual((0, fuzzy_1.scoreFile)(relativePath, filename, query), expected, `${relativePath} should preserve its score for ${query}`);
+        }
+    });
+});
+suite('score-only scorer parity', () => {
+    function scoreCandidate(candidate, query) {
+        const scorer = (0, fuzzy_1.createFileScorer)(query);
+        return scorer(candidate, candidate.toLowerCase(), '\0', '\0');
+    }
+    function expectedScore(candidate, query) {
+        return (0, fuzzy_1.fuzzyMatch)(candidate, query)?.score ?? null;
+    }
+    test('matches positional scoring for deterministic edge cases', () => {
+        const cases = [
+            ['', ''],
+            ['Button.tsx', 'btn'],
+            ['src/components/Button.tsx', 'scb'],
+            ['a-b_c.d/eF', 'abcdef'],
+            ['sameCASE', 'SAMEcase'],
+            ['no-match', 'xyz'],
+            ['repeated-letters', 'eee'],
+        ];
+        for (const [candidate, query] of cases) {
+            assert.strictEqual(scoreCandidate(candidate, query), expectedScore(candidate, query), `${candidate} should preserve the positional score for ${query}`);
+        }
+    });
+    test('matches positional scoring for seeded randomized pairs', () => {
+        let state = 0x5eed1234;
+        const random = () => {
+            state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+            return state / 0x1_0000_0000;
+        };
+        const alphabet = 'abcXYZ012/_-.';
+        for (let sample = 0; sample < 500; sample++) {
+            const candidateLength = 1 + Math.floor(random() * 48);
+            let candidate = '';
+            for (let index = 0; index < candidateLength; index++) {
+                candidate += alphabet[Math.floor(random() * alphabet.length)];
+            }
+            let query = '';
+            if (sample % 17 !== 0) {
+                const queryLength = 1 + Math.floor(random() * 8);
+                if (sample % 2 === 0) {
+                    let candidateIndex = 0;
+                    while (query.length < queryLength && candidateIndex < candidate.length) {
+                        if (random() < 0.35) {
+                            query += candidate[candidateIndex];
+                        }
+                        candidateIndex++;
+                    }
+                }
+                else {
+                    for (let index = 0; index < queryLength; index++) {
+                        query += alphabet[Math.floor(random() * alphabet.length)];
+                    }
+                }
+            }
+            assert.strictEqual(scoreCandidate(candidate, query), expectedScore(candidate, query), `seeded sample ${sample} drifted for ${candidate} / ${query}`);
+        }
     });
 });
 //# sourceMappingURL=fuzzy.test.js.map

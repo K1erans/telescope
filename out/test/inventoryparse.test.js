@@ -33,15 +33,27 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.outputChannel = void 0;
-exports.initLogger = initLogger;
-exports.log = log;
-const vscode = __importStar(require("vscode"));
-function initLogger() {
-    exports.outputChannel = vscode.window.createOutputChannel('PathFuzzy');
-    return exports.outputChannel;
-}
-function log(msg) {
-    exports.outputChannel?.appendLine(msg);
-}
-//# sourceMappingURL=logger.js.map
+const assert = __importStar(require("assert"));
+const inventoryparse_1 = require("../inventoryparse");
+suite('ripgrep inventory parser', () => {
+    test('returns an immutable empty inventory for empty stdout', () => {
+        const entries = (0, inventoryparse_1.parseRipgrepPaths)('');
+        assert.deepStrictEqual(entries, []);
+        assert.strictEqual(Object.isFrozen(entries), true);
+    });
+    test('normalizes Windows separators and derives filenames', () => {
+        const entries = (0, inventoryparse_1.parseRipgrepPaths)('src\\components\\Button.tsx\r\nREADME.md\n\n');
+        assert.deepStrictEqual(entries, [
+            {
+                relativePath: 'src/components/Button.tsx',
+                filename: 'Button.tsx',
+            },
+            {
+                relativePath: 'README.md',
+                filename: 'README.md',
+            },
+        ]);
+        assert.strictEqual(entries.every(Object.isFrozen), true);
+    });
+});
+//# sourceMappingURL=inventoryparse.test.js.map

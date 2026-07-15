@@ -35,14 +35,9 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.openPicker = openPicker;
 const vscode = __importStar(require("vscode"));
-const path = __importStar(require("path"));
-const search_1 = require("./search");
-const fuzzy_1 = require("./fuzzy");
-/**
- * Opens the PathFuzzy file picker for the given workspace folder.
- * If workspaceFolder is not supplied it will be determined automatically.
- */
-async function openPicker(searcher, workspaceFolder) {
+const pickermodel_1 = require("./pickermodel");
+const pickeritems_1 = require("./pickeritems");
+async function openPicker(inventory, workspaceFolder) {
     const root = workspaceFolder ?? (await resolveWorkspaceFolder());
     if (!root) {
         vscode.window.showInformationMessage('Open a folder/workspace to search files.');
@@ -52,99 +47,78 @@ async function openPicker(searcher, workspaceFolder) {
     const debounceMs = config.get('debounceMs', 100);
     const maxResults = config.get('maxResults', 200);
     const showPreview = config.get('showPreview', false);
-    const sortWhenEmpty = config.get('sortWhenEmpty', 'alphabetical');
     const qp = vscode.window.createQuickPick();
     qp.title = 'PathFuzzy: Find Files';
     qp.placeholder = 'Type to search (use "src/" to scope to a directory)';
     qp.matchOnDescription = false;
     qp.matchOnDetail = false;
     let debounceTimer;
-    let cachedAllFiles;
-    let cachedValidDirs;
+    let previewThrottle;
+    let model;
+    let entriesByPath = new Map();
+    let loadPromise;
+    const updateGeneration = new pickeritems_1.PickerUpdateGeneration();
+    let disposed = false;
+    const loadModel = async () => {
+        if (!loadPromise) {
+            loadPromise = inventory.load(root).then(entries => {
+                entriesByPath = new Map(entries.map(entry => [entry.relativePath, entry]));
+                model = (0, pickermodel_1.createPickerModel)(entries);
+            });
+        }
+        return loadPromise;
+    };
     const updateItems = async (value) => {
+        const generation = updateGeneration.begin();
         qp.busy = true;
-        // Fetch all files first, then parse input against the real file list
-        let allFiles;
         try {
-            allFiles = await searcher.getAllFiles(root);
-        }
-        catch {
-            allFiles = [];
-        }
-        if (cachedAllFiles !== allFiles) {
-            cachedAllFiles = allFiles;
-            cachedValidDirs = (0, search_1.buildValidDirSet)(allFiles);
-        }
-        const { scopePrefix, query } = (0, search_1.parseInput)(value, allFiles, cachedValidDirs);
-        const candidates = scopePrefix
-            ? allFiles.filter(f => f.relativePath.startsWith(scopePrefix))
-            : allFiles;
-        if (candidates.length === 0) {
-            const message = scopePrefix
-                ? `No files in scope: ${scopePrefix}`
-                : 'No files found in workspace.';
-            qp.items = [
-                {
-                    label: '$(info) ' + message,
-                    description: '',
-                    alwaysShow: true,
-                    fileEntry: null,
-                },
-            ];
-            qp.busy = false;
-            return;
-        }
-        let items;
-        if (!query) {
-            if (scopePrefix) {
-                // Directory listing: show immediate subdirs first, then files at this level,
-                // then deeper files — all sorted alphabetically within each group.
-                items = buildDirectoryListing(candidates, scopePrefix, maxResults, root);
-            }
-            else {
-                // No scope, no query: flat list sorted by configured strategy
-                const sorted = sortWhenEmpty === 'alphabetical'
-                    ? [...candidates].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
-                    : candidates;
-                items = sorted.slice(0, maxResults).map(f => toPickItem(f, scopePrefix, root));
-            }
-        }
-        else {
-            // Score and rank
-            const scored = [];
-            for (const f of candidates) {
-                // Score against path relative to scope
-                const pathInScope = scopePrefix
-                    ? f.relativePath.slice(scopePrefix.length)
-                    : f.relativePath;
-                const match = (0, fuzzy_1.scoreFile)(pathInScope, f.filename, query);
-                if (match) {
-                    scored.push({ item: toPickItem(f, scopePrefix, root), score: match.score });
+            try {
+                if (!model) {
+                    await loadModel();
                 }
             }
-            scored.sort((a, b) => b.score - a.score);
-            items = scored.slice(0, maxResults).map(s => s.item);
+            catch {
+                model = (0, pickermodel_1.createPickerModel)([]);
+            }
+            if (disposed || !updateGeneration.isCurrent(generation) || !model) {
+                return;
+            }
+            const isMultiRoot = (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
+            qp.items = model.update(value, maxResults)
+                .map(row => (0, pickeritems_1.toQuickPickItem)(row, isMultiRoot ? root.name : undefined));
         }
-        qp.items = items;
-        qp.busy = false;
+        catch {
+            if (!disposed && updateGeneration.isCurrent(generation)) {
+                qp.items = [{
+                        label: '$(error) PathFuzzy could not update results.',
+                        alwaysShow: true,
+                    }];
+            }
+        }
+        finally {
+            if (!disposed && updateGeneration.isCurrent(generation)) {
+                qp.busy = false;
+            }
+        }
     };
     const scheduleUpdate = (value) => {
         if (debounceTimer !== undefined) {
             clearTimeout(debounceTimer);
         }
-        debounceTimer = setTimeout(() => updateItems(value), debounceMs);
+        debounceTimer = setTimeout(() => {
+            void updateItems(value);
+        }, debounceMs);
     };
-    // Initial load
     void updateItems('');
     qp.onDidChangeValue(value => {
         scheduleUpdate(value);
     });
-    // Preview on active item change (throttled — only when showPreview is on)
-    let previewThrottle;
     if (showPreview) {
         qp.onDidChangeActive(items => {
             const item = items[0];
-            const entry = item?.fileEntry;
+            const entry = item?.relativePath
+                ? entriesByPath.get(item.relativePath)
+                : undefined;
             if (!entry || item.drillPath) {
                 return;
             }
@@ -164,22 +138,25 @@ async function openPicker(searcher, workspaceFolder) {
         if (!selected) {
             return;
         }
-        // Directory item: drill into it by updating the input
         if (selected.drillPath) {
             qp.value = selected.drillPath;
-            // updateItems will fire via onDidChangeValue
             return;
         }
-        if (!selected.fileEntry) {
+        const entry = selected.relativePath
+            ? entriesByPath.get(selected.relativePath)
+            : undefined;
+        if (!entry) {
             return;
         }
         qp.hide();
-        void vscode.window.showTextDocument(selected.fileEntry.uri, {
+        void vscode.window.showTextDocument(entry.uri, {
             preview: false,
             preserveFocus: false,
         });
     });
     qp.onDidHide(() => {
+        disposed = true;
+        updateGeneration.invalidate();
         if (debounceTimer !== undefined) {
             clearTimeout(debounceTimer);
         }
@@ -190,80 +167,6 @@ async function openPicker(searcher, workspaceFolder) {
     });
     qp.show();
 }
-function toPickItem(f, scopePrefix, root) {
-    const pathInScope = scopePrefix ? f.relativePath.slice(scopePrefix.length) : f.relativePath;
-    const dir = path.dirname(pathInScope);
-    const isMultiRoot = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 1;
-    return {
-        label: f.filename,
-        description: dir === '.' ? (scopePrefix || '') : (scopePrefix || '') + dir + '/',
-        detail: isMultiRoot ? root.name : undefined,
-        alwaysShow: true,
-        fileEntry: f,
-    };
-}
-/**
- * Builds a directory-listing view for when the user has typed a valid scope
- * prefix with no query. Shows:
- *   1. Immediate subdirectories ($(folder) icon, selectable to drill down)
- *   2. Files directly in the scope directory
- *   3. Files in deeper subdirectories (dimmed description showing full subpath)
- */
-function buildDirectoryListing(candidates, scopePrefix, maxResults, root) {
-    const isMultiRoot = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 1;
-    // Strip the scope prefix to get each file's path relative to the scope root
-    const relativized = candidates.map(f => ({
-        f,
-        rel: f.relativePath.slice(scopePrefix.length), // e.g. "components/Button.tsx"
-    }));
-    // Collect immediate subdirectory names (first path segment)
-    const subdirSet = new Set();
-    for (const { rel } of relativized) {
-        const slash = rel.indexOf('/');
-        if (slash !== -1) {
-            subdirSet.add(rel.slice(0, slash));
-        }
-    }
-    const subdirItems = [...subdirSet]
-        .sort()
-        .map(name => ({
-        label: `$(folder) ${name}/`,
-        description: scopePrefix,
-        detail: isMultiRoot ? root.name : undefined,
-        alwaysShow: true,
-        fileEntry: null,
-        drillPath: scopePrefix + name + '/',
-    }));
-    // Files directly in the scope (no slash in rel path)
-    const directFiles = relativized
-        .filter(({ rel }) => !rel.includes('/'))
-        .sort((a, b) => a.rel.localeCompare(b.rel));
-    const directItems = directFiles.map(({ f }) => ({
-        label: f.filename,
-        description: scopePrefix,
-        detail: isMultiRoot ? root.name : undefined,
-        alwaysShow: true,
-        fileEntry: f,
-    }));
-    // Files in subdirectories
-    const deepFiles = relativized
-        .filter(({ rel }) => rel.includes('/'))
-        .sort((a, b) => a.rel.localeCompare(b.rel));
-    const deepItems = deepFiles.map(({ f, rel }) => ({
-        label: f.filename,
-        description: scopePrefix + path.dirname(rel) + '/',
-        detail: isMultiRoot ? root.name : undefined,
-        alwaysShow: true,
-        fileEntry: f,
-    }));
-    return [...subdirItems, ...directItems, ...deepItems].slice(0, maxResults);
-}
-/**
- * Determines the workspace folder to use:
- *   1. Active editor's folder (if any).
- *   2. Single workspace folder.
- *   3. Prompt user to pick.
- */
 async function resolveWorkspaceFolder() {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
@@ -272,7 +175,6 @@ async function resolveWorkspaceFolder() {
     if (folders.length === 1) {
         return folders[0];
     }
-    // Try active editor
     const activeDoc = vscode.window.activeTextEditor?.document;
     if (activeDoc && !activeDoc.isUntitled) {
         const folder = vscode.workspace.getWorkspaceFolder(activeDoc.uri);
@@ -280,7 +182,6 @@ async function resolveWorkspaceFolder() {
             return folder;
         }
     }
-    // Ask user
     const picked = await vscode.window.showQuickPick(folders.map(f => ({ label: f.name, description: f.uri.fsPath, folder: f })), { title: 'PathFuzzy: Select workspace folder', placeHolder: 'Choose a root to search' });
     return picked?.folder;
 }

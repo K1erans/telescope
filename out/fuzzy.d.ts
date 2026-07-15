@@ -24,5 +24,7 @@ export declare function fuzzyMatch(candidate: string, query: string): FuzzyMatch
  * Score a file path against a query, using both the full relative path and
  * the filename component. Returns null if no match.
  */
-export declare function scoreFile(relativePath: string, filename: string, query: string): FuzzyMatch | null;
+export declare function scoreFile(relativePath: string, filename: string, query: string, lowerQuery?: string, indexedLowerPath?: string, indexedLowerFilename?: string): number | null;
+export type FileScorer = (relativePath: string, lowerRelativePath: string, filename: string, lowerFilename: string) => number | null;
+export declare function createFileScorer(query: string): FileScorer;
 //# sourceMappingURL=fuzzy.d.ts.map

@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `src/` contains the extension source.
 - `src/extension.ts` is the activation entrypoint and command registration.
-- `src/picker.ts`, `src/search.ts`, and `src/fuzzy.ts` hold UI orchestration, file inventory/search, and pure fuzzy scoring logic.
+- `src/picker.ts` and `src/inventory.ts` are the QuickPick and ripgrep adapters; `src/pickermodel.ts` and `src/fuzzy.ts` hold pure picker and scoring logic.
 - `src/test/` contains Mocha tests (`*.test.ts`) plus the VS Code test launcher (`runTests.ts`).
 - Compiled artifacts go to `out/` and should be treated as generated output.
 

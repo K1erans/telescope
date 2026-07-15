@@ -1,25 +1,22 @@
 import * as vscode from 'vscode';
-import { FileSearcher } from './search';
+import { RipgrepInventory } from './inventory';
 import { openPicker } from './picker';
-import { initLogger } from './logger';
 
-let searcher: FileSearcher | undefined;
+let inventory: RipgrepInventory | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(initLogger());
-
-  searcher = new FileSearcher();
-  context.subscriptions.push(searcher);
+  inventory = new RipgrepInventory();
+  context.subscriptions.push(inventory);
 
   const findFilesCmd = vscode.commands.registerCommand('pathfuzzy.findFiles', () => {
-    if (!searcher) { return; }
-    void openPicker(searcher);
+    if (!inventory) { return; }
+    void openPicker(inventory);
   });
 
   context.subscriptions.push(findFilesCmd);
 }
 
 export function deactivate(): void {
-  searcher?.dispose();
-  searcher = undefined;
+  inventory?.dispose();
+  inventory = undefined;
 }

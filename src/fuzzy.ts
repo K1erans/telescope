@@ -45,6 +45,110 @@ export function fuzzyMatch(candidate: string, query: string): FuzzyMatch | null 
   return computeBestMatch(candidate, lowerCandidate, lowerQuery);
 }
 
+/**
+ * Returns only the best fuzzy score. This follows the same scoring rules as
+ * fuzzyMatch but avoids allocating predecessor arrays and match positions.
+ */
+function fuzzyScore(
+  candidate: string,
+  lowerCandidate: string,
+  lowerQuery: string,
+  workspace?: ScoreWorkspace
+): number | null {
+  if (lowerQuery.length === 0) {
+    return 0;
+  }
+
+  if (!hasAllCharsInOrder(lowerCandidate, lowerQuery)) {
+    return null;
+  }
+
+  const n = candidate.length;
+  const m = lowerQuery.length;
+  if (m > n) {
+    return null;
+  }
+
+  const negativeInfinity = Number.NEGATIVE_INFINITY;
+  const buffers = workspace
+    ? workspace.buffers(n)
+    : [new Float64Array(n), new Float64Array(n)] as const;
+  let previousScores = buffers[0];
+  let currentScores = buffers[1];
+  previousScores.fill(negativeInfinity, 0, n);
+
+  let unmatchedLead = 0;
+  for (let candidateIndex = 0; candidateIndex < n; candidateIndex++) {
+    if (lowerCandidate[candidateIndex] !== lowerQuery[0]) {
+      unmatchedLead++;
+      continue;
+    }
+
+    let score = SCORE_MATCH + unmatchedLead * PENALTY_UNMATCHED_LEAD;
+    if (candidateIndex === 0) {
+      score += SCORE_START_BONUS;
+    }
+    score += characterBonus(candidate, candidateIndex);
+    previousScores[candidateIndex] = score;
+    unmatchedLead = 0;
+  }
+
+  for (let queryIndex = 1; queryIndex < m; queryIndex++) {
+    currentScores.fill(negativeInfinity, 0, n);
+    let bestPreviousScore = negativeInfinity;
+    let bestPreviousIndex = -1;
+
+    for (let candidateIndex = queryIndex; candidateIndex < n; candidateIndex++) {
+      const previousIndex = candidateIndex - 1;
+      if (
+        previousIndex >= queryIndex - 1
+        && previousScores[previousIndex] > bestPreviousScore
+      ) {
+        bestPreviousScore = previousScores[previousIndex];
+        bestPreviousIndex = previousIndex;
+      }
+
+      if (
+        lowerCandidate[candidateIndex] !== lowerQuery[queryIndex]
+        || bestPreviousScore === negativeInfinity
+      ) {
+        continue;
+      }
+
+      let score = bestPreviousScore + SCORE_MATCH;
+      if (bestPreviousIndex === candidateIndex - 1) {
+        score += SCORE_CONTIGUOUS_BONUS;
+      }
+      score += characterBonus(candidate, candidateIndex);
+      currentScores[candidateIndex] = score;
+    }
+
+    [previousScores, currentScores] = [currentScores, previousScores];
+  }
+
+  let bestScore = negativeInfinity;
+  for (const score of previousScores) {
+    if (score > bestScore) {
+      bestScore = score;
+    }
+  }
+
+  return bestScore === negativeInfinity ? null : bestScore + n * PENALTY_LENGTH;
+}
+
+class ScoreWorkspace {
+  private first = new Float64Array(0);
+  private second = new Float64Array(0);
+
+  buffers(length: number): readonly [Float64Array, Float64Array] {
+    if (this.first.length < length) {
+      this.first = new Float64Array(length);
+      this.second = new Float64Array(length);
+    }
+    return [this.first, this.second];
+  }
+}
+
 function hasAllCharsInOrder(candidate: string, query: string): boolean {
   let qi = 0;
   for (let ci = 0; ci < candidate.length && qi < query.length; ci++) {
@@ -185,38 +289,105 @@ function isUpperCase(ch: string): boolean {
   return ch >= 'A' && ch <= 'Z';
 }
 
+function characterBonus(candidate: string, index: number): number {
+  let bonus = 0;
+  if (isSegmentStart(candidate, index)) {
+    bonus += SCORE_SEGMENT_START_BONUS;
+  }
+  if (index > 0 && isUpperCase(candidate[index]) && !isUpperCase(candidate[index - 1])) {
+    bonus += SCORE_CAMEL_BONUS;
+  }
+  return bonus;
+}
+
 /**
  * Score a file path against a query, using both the full relative path and
  * the filename component. Returns null if no match.
  */
-export function scoreFile(relativePath: string, filename: string, query: string): FuzzyMatch | null {
+export function scoreFile(
+  relativePath: string,
+  filename: string,
+  query: string,
+  lowerQuery: string = query.toLowerCase(),
+  indexedLowerPath?: string,
+  indexedLowerFilename?: string
+): number | null {
+  return scoreFileWithWorkspace(
+    relativePath,
+    filename,
+    query,
+    lowerQuery,
+    indexedLowerPath,
+    indexedLowerFilename
+  );
+}
+
+export type FileScorer = (
+  relativePath: string,
+  lowerRelativePath: string,
+  filename: string,
+  lowerFilename: string
+) => number | null;
+
+export function createFileScorer(query: string): FileScorer {
+  const lowerQuery = query.toLowerCase();
+  const workspace = new ScoreWorkspace();
+  return (relativePath, lowerRelativePath, filename, lowerFilename) =>
+    scoreFileWithWorkspace(
+      relativePath,
+      filename,
+      query,
+      lowerQuery,
+      lowerRelativePath,
+      lowerFilename,
+      workspace
+    );
+}
+
+function scoreFileWithWorkspace(
+  relativePath: string,
+  filename: string,
+  query: string,
+  lowerQuery: string,
+  indexedLowerPath?: string,
+  indexedLowerFilename?: string,
+  workspace?: ScoreWorkspace
+): number | null {
   if (query.length === 0) {
-    return { score: 0, positions: [] };
+    return 0;
   }
 
-  // Score against full path (normalized to forward slashes)
-  const normalizedPath = relativePath.replace(/\\/g, '/');
-  const pathMatch = fuzzyMatch(normalizedPath, query);
+  // Inventory paths are already normalized. Keep direct callers compatible.
+  const normalizedPath = relativePath.includes('\\')
+    ? relativePath.replace(/\\/g, '/')
+    : relativePath;
+  const pathScore = fuzzyScore(
+    normalizedPath,
+    indexedLowerPath ?? normalizedPath.toLowerCase(),
+    lowerQuery,
+    workspace
+  );
 
   // Score against filename only — boost filename matches
-  const fileMatch = fuzzyMatch(filename, query);
+  const fileScore = fuzzyScore(
+    filename,
+    indexedLowerFilename ?? filename.toLowerCase(),
+    lowerQuery,
+    workspace
+  );
 
-  if (!pathMatch && !fileMatch) {
+  if (pathScore === null && fileScore === null) {
     return null;
   }
 
-  if (!pathMatch) {
-    return fileMatch;
+  if (pathScore === null) {
+    return fileScore;
   }
 
-  if (!fileMatch) {
-    return pathMatch;
+  if (fileScore === null) {
+    return pathScore;
   }
 
   // Prefer the higher score; filename match gets a bonus for being concise
-  const fileScore = fileMatch.score + 10;
-  if (fileScore > pathMatch.score) {
-    return { score: fileScore, positions: fileMatch.positions };
-  }
-  return pathMatch;
+  return Math.max(pathScore, fileScore + 10);
 }

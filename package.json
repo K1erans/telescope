@@ -70,33 +70,10 @@
           ],
           "description": "Glob patterns passed to ripgrep as --glob !<pattern> excludes."
         },
-        "pathfuzzy.inventoryMode": {
-          "type": "string",
-          "enum": [
-            "workspaceCache",
-            "scopedQuery"
-          ],
-          "default": "workspaceCache",
-          "description": "File inventory strategy. 'workspaceCache' fetches all files once and caches them. 'scopedQuery' runs a new query per scope prefix."
-        },
-        "pathfuzzy.sortWhenEmpty": {
-          "type": "string",
-          "enum": [
-            "alphabetical",
-            "recent"
-          ],
-          "default": "alphabetical",
-          "description": "Sort order when the query is empty."
-        },
         "pathfuzzy.includeHidden": {
           "type": "boolean",
           "default": false,
           "description": "Include hidden files (starting with .) in results."
-        },
-        "pathfuzzy.allowDotDot": {
-          "type": "boolean",
-          "default": false,
-          "description": "Allow ../ in path prefix input to traverse above workspace root."
         }
       }
     }

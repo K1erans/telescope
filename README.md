@@ -5,10 +5,10 @@ A VS Code extension that provides a fast, Telescope-inspired file picker with pa
 ## Features
 
 - **Path-prefix scoping** — restrict search to any directory by typing its path followed by `/`
-- **Fuzzy matching** — scores matches by contiguity, segment boundaries, and CamelCase transitions
+- **Path-only fuzzy matching** — scores filenames and paths by contiguity, segment boundaries, and CamelCase transitions
 - **Live updates** — results refresh as you type, with configurable debounce
 - **Multi-root workspaces** — automatically picks the active editor's workspace folder or prompts you to choose
-- **Cache** — file lists are cached per session and invalidated on file system changes
+- **Ripgrep inventory** — `rg --files` builds a cached path inventory that is invalidated on file system changes
 - **Configurable** — excludes, result limits, preview, and more
 
 ## Usage
@@ -16,7 +16,7 @@ A VS Code extension that provides a fast, Telescope-inspired file picker with pa
 ### Open the picker
 
 - **Command Palette**: `PathFuzzy: Find Files`
-- **Keybinding**: `Cmd+Shift+J` (macOS) / `Ctrl+Alt+P` (Windows/Linux)
+- **Keybinding**: `Cmd+Ctrl+7` (macOS) / `Ctrl+Alt+7` (Windows/Linux)
 
 ### Typing patterns
 
@@ -55,16 +55,14 @@ All settings are under the `pathfuzzy` namespace.
 | `pathfuzzy.maxResults` | number | 200 | Maximum items shown in the picker |
 | `pathfuzzy.debounceMs` | number | 100 | Debounce delay (ms) for input |
 | `pathfuzzy.showPreview` | boolean | false | Preview files on navigation |
-| `pathfuzzy.defaultExcludes` | string[] | `["**/node_modules/**", "**/.git/**", ...]` | Glob patterns to exclude |
-| `pathfuzzy.inventoryMode` | `"workspaceCache"` \| `"scopedQuery"` | `"workspaceCache"` | File inventory strategy |
-| `pathfuzzy.sortWhenEmpty` | `"alphabetical"` \| `"recent"` | `"alphabetical"` | Sort order with no query |
+| `pathfuzzy.defaultExcludes` | string[] | `["node_modules", ".git", ...]` | Glob patterns passed to ripgrep as excludes |
 | `pathfuzzy.includeHidden` | boolean | false | Include hidden files (`.dotfiles`) |
-| `pathfuzzy.allowDotDot` | boolean | false | Allow `../` in scope prefix |
 
-### inventoryMode
+### Search scope
 
-- **`workspaceCache`** (default): fetches all workspace files once, caches them, then filters in-memory. Fast for repeated searches. Cache is invalidated on file create/delete/rename.
-- **`scopedQuery`**: runs a new `findFiles` call for each scope prefix. Better for very large monorepos where loading everything upfront is too slow.
+PathFuzzy searches path and filename metadata only; it does not search file contents. It uses
+`rg --files` to build an inventory, then performs scoped fuzzy typeahead in memory. Parent
+traversal (`../`) is never accepted as a scope.
 
 ## Fuzzy Scoring
 
@@ -91,15 +89,19 @@ Press `F5` in VS Code to launch the Extension Development Host.
 
 ```
 src/
-├── extension.ts    — activation, command registration, searcher lifecycle
-├── picker.ts       — QuickPick UI, input parsing orchestration, file opening
-├── search.ts       — vscode.workspace.findFiles wrapper, caching, parseInput
+├── extension.ts    — activation and adapter wiring
+├── inventory.ts    — ripgrep inventory, caching, URI construction, diagnostics
+├── inventoryparse.ts — pure single-pass ripgrep output parsing
+├── picker.ts       — QuickPick mapping, debounce, preview, and open effects
+├── pickeritems.ts  — typed-row mapping and stale-update generation guard
+├── pickermodel.ts  — pure indexed scope, ranking, and typed-row model
 ├── fuzzy.ts        — pure fuzzy scoring (no VS Code dependency)
 └── test/
-    ├── index.ts         — Mocha test runner entry point
-    ├── runTests.ts      — @vscode/test-electron launcher
-    ├── fuzzy.test.ts    — unit tests for fuzzy scoring
-    └── parseInput.test.ts — integration tests for input parsing
+    ├── index.ts             — Mocha test runner entry point
+    ├── runTests.ts          — @vscode/test-electron launcher
+    ├── fuzzy.test.ts        — fuzzy scoring tests
+    ├── picker.test.ts       — QuickPick adapter tests
+    └── pickermodel.test.ts  — picker-model interface tests
 ```
 
 ## License

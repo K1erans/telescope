@@ -36,24 +36,22 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
-const search_1 = require("./search");
+const inventory_1 = require("./inventory");
 const picker_1 = require("./picker");
-const logger_1 = require("./logger");
-let searcher;
+let inventory;
 function activate(context) {
-    context.subscriptions.push((0, logger_1.initLogger)());
-    searcher = new search_1.FileSearcher();
-    context.subscriptions.push(searcher);
+    inventory = new inventory_1.RipgrepInventory();
+    context.subscriptions.push(inventory);
     const findFilesCmd = vscode.commands.registerCommand('pathfuzzy.findFiles', () => {
-        if (!searcher) {
+        if (!inventory) {
             return;
         }
-        void (0, picker_1.openPicker)(searcher);
+        void (0, picker_1.openPicker)(inventory);
     });
     context.subscriptions.push(findFilesCmd);
 }
 function deactivate() {
-    searcher?.dispose();
-    searcher = undefined;
+    inventory?.dispose();
+    inventory = undefined;
 }
 //# sourceMappingURL=extension.js.map
