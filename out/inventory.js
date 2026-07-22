@@ -37,35 +37,42 @@ exports.RipgrepInventory = void 0;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
+const invalidatablecache_1 = require("./invalidatablecache");
 const inventoryparse_1 = require("./inventoryparse");
-const cacheTtlMs = 30_000;
 class RipgrepInventory {
-    cache = new Map();
+    cache = new invalidatablecache_1.InvalidatableCache();
     disposables;
     output = vscode.window.createOutputChannel('PathFuzzy');
     constructor() {
-        const invalidate = () => this.cache.clear();
+        const invalidate = () => this.cache.invalidate();
         this.disposables = [
             this.output,
             vscode.workspace.onDidCreateFiles(invalidate),
             vscode.workspace.onDidDeleteFiles(invalidate),
             vscode.workspace.onDidRenameFiles(invalidate),
+            vscode.workspace.onDidChangeConfiguration(event => {
+                if (event.affectsConfiguration('pathfuzzy.includeHidden')
+                    || event.affectsConfiguration('pathfuzzy.defaultExcludes')) {
+                    invalidate();
+                }
+            }),
         ];
     }
     dispose() {
         for (const disposable of this.disposables) {
             disposable.dispose();
         }
-        this.cache.clear();
+        this.cache.invalidate();
     }
     async load(workspaceFolder) {
         const cacheKey = workspaceFolder.uri.toString();
         const cached = this.cache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < cacheTtlMs) {
-            return cached.files;
+        if (cached) {
+            return cached;
         }
+        const generation = this.cache.beginLoad();
         const files = await this.fetch(workspaceFolder);
-        this.cache.set(cacheKey, { files, timestamp: Date.now() });
+        this.cache.setIfCurrent(cacheKey, files, generation);
         return files;
     }
     fetch(workspaceFolder) {

@@ -1,4 +1,4 @@
-# PathFuzzy Finder
+# Teleskope
 
 A VS Code extension that provides a fast, Telescope-inspired file picker with path-prefix scoping and fuzzy filtering.
 

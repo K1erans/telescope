@@ -1,6 +1,6 @@
 {
   "name": "pathfuzzy",
-  "displayName": "PathFuzzy Finder",
+  "displayName": "Teleskope",
   "description": "Path-prefix scoped fuzzy file search for VS Code and Cursor, inspired by Telescope",
   "version": "0.1.0",
   "publisher": "pathfuzzy",

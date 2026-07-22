@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { execFile } from 'child_process';
+import { InvalidatableCache } from './invalidatablecache';
 import { parseRipgrepPaths } from './inventoryparse';
 
 export interface InventoryEntry {
@@ -9,25 +10,24 @@ export interface InventoryEntry {
   readonly filename: string;
 }
 
-interface CacheEntry {
-  readonly files: readonly InventoryEntry[];
-  readonly timestamp: number;
-}
-
-const cacheTtlMs = 30_000;
-
 export class RipgrepInventory implements vscode.Disposable {
-  private readonly cache = new Map<string, CacheEntry>();
+  private readonly cache = new InvalidatableCache<readonly InventoryEntry[]>();
   private readonly disposables: vscode.Disposable[];
   private readonly output = vscode.window.createOutputChannel('PathFuzzy');
 
   constructor() {
-    const invalidate = () => this.cache.clear();
+    const invalidate = () => this.cache.invalidate();
     this.disposables = [
       this.output,
       vscode.workspace.onDidCreateFiles(invalidate),
       vscode.workspace.onDidDeleteFiles(invalidate),
       vscode.workspace.onDidRenameFiles(invalidate),
+      vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('pathfuzzy.includeHidden')
+          || event.affectsConfiguration('pathfuzzy.defaultExcludes')) {
+          invalidate();
+        }
+      }),
     ];
   }
 
@@ -35,18 +35,19 @@ export class RipgrepInventory implements vscode.Disposable {
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
-    this.cache.clear();
+    this.cache.invalidate();
   }
 
   async load(workspaceFolder: vscode.WorkspaceFolder): Promise<readonly InventoryEntry[]> {
     const cacheKey = workspaceFolder.uri.toString();
     const cached = this.cache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < cacheTtlMs) {
-      return cached.files;
+    if (cached) {
+      return cached;
     }
 
+    const generation = this.cache.beginLoad();
     const files = await this.fetch(workspaceFolder);
-    this.cache.set(cacheKey, { files, timestamp: Date.now() });
+    this.cache.setIfCurrent(cacheKey, files, generation);
     return files;
   }
 
