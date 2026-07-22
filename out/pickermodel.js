@@ -38,10 +38,36 @@ function createPickerModel(files) {
             return Object.freeze(rankFiles(candidates, scope, limit)
                 .map(({ file }) => toFileRow(file, scope.prefix)));
         },
+        contentQuery(input) {
+            const query = parseScope(input, inventory.validDirectories).query;
+            return /\s/.test(query) ? query : undefined;
+        },
+        contentMatches(input, matches, maxResults) {
+            const limit = Math.max(0, Math.floor(maxResults));
+            if (limit === 0) {
+                return emptyRows;
+            }
+            const scope = parseScope(input, inventory.validDirectories);
+            const indexedMatches = matches
+                .map(match => inventory.filesByPath.get(normalizePath(match.relativePath)))
+                .filter((file) => file !== undefined)
+                .filter(file => file.relativePath.startsWith(scope.prefix))
+                .sort(compareFiles);
+            if (indexedMatches.length === 0) {
+                return Object.freeze([Object.freeze({
+                        kind: 'info',
+                        message: 'No files contain that text.',
+                    })]);
+            }
+            return Object.freeze(indexedMatches
+                .slice(0, limit)
+                .map(file => toFileRow(file, scope.prefix)));
+        },
     };
 }
 function buildInventoryIndex(files) {
     const filesByScope = new Map();
+    const filesByPath = new Map();
     filesByScope.set('', []);
     const validDirectories = new Set();
     for (const source of files) {
@@ -53,6 +79,7 @@ function buildInventoryIndex(files) {
             lowerFilename: source.filename.toLowerCase(),
         });
         filesByScope.get('').push(file);
+        filesByPath.set(relativePath, file);
         let slashIndex = relativePath.indexOf('/');
         while (slashIndex !== -1) {
             const prefix = relativePath.slice(0, slashIndex + 1);
@@ -73,6 +100,7 @@ function buildInventoryIndex(files) {
     return {
         validDirectories,
         filesByScope,
+        filesByPath,
         rootAlphabetical,
     };
 }

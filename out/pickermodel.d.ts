@@ -21,6 +21,8 @@ export interface FileRow {
 }
 export interface PickerModel {
     update(input: string, maxResults: number): readonly PickerRow[];
+    contentQuery(input: string): string | undefined;
+    contentMatches(input: string, matches: readonly PickerFile[], maxResults: number): readonly PickerRow[];
 }
 export declare function createPickerModel(files: readonly PickerFile[]): PickerModel;
 //# sourceMappingURL=pickermodel.d.ts.map

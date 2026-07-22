@@ -75,31 +75,45 @@ class RipgrepInventory {
         this.cache.setIfCurrent(cacheKey, files, generation);
         return files;
     }
-    fetch(workspaceFolder) {
-        const config = vscode.workspace.getConfiguration('pathfuzzy');
-        const includeHidden = config.get('includeHidden', false);
-        const defaultExcludes = config.get('defaultExcludes', [
-            'node_modules',
-            '.git',
-            'dist',
-            'out',
-            '.next',
-        ]);
+    findContent(workspaceFolder, query) {
         const rootFsPath = workspaceFolder.uri.fsPath;
-        const args = ['--files', '--follow'];
-        if (includeHidden) {
-            args.push('--hidden');
-        }
-        for (const exclude of defaultExcludes) {
-            args.push('--glob', `!${exclude}`);
-        }
-        const environment = { ...process.env };
-        environment.PATH = [
-            environment.PATH,
-            '/opt/homebrew/bin',
-            '/usr/local/bin',
-            '/usr/bin',
-        ].filter(Boolean).join(':');
+        const { args, environment } = this.ripgrepOptions([
+            '--files-with-matches',
+            '--fixed-strings',
+            '--follow',
+        ]);
+        args.push('--', query);
+        this.log(`[rg] searching for content: ${JSON.stringify(query)} (cwd: ${rootFsPath})`);
+        return new Promise(resolve => {
+            (0, child_process_1.execFile)('rg', args, { cwd: rootFsPath, maxBuffer: 50 * 1024 * 1024, env: environment }, (error, stdout, stderr) => {
+                if (error) {
+                    if (error.code === 'ENOENT') {
+                        this.log(`[rg] error: ${error.message}`);
+                        void vscode.window.showErrorMessage('PathFuzzy: ripgrep (rg) not found. Install ripgrep and ensure rg is on PATH.');
+                    }
+                    else if (error.code !== 1) {
+                        this.log(`[rg] error: ${error.message}`);
+                        if (stderr) {
+                            this.log(`[rg] stderr: ${stderr}`);
+                        }
+                    }
+                    resolve([]);
+                    return;
+                }
+                const paths = (0, inventoryparse_1.parseRipgrepPaths)(stdout);
+                const entries = paths.map(({ relativePath, filename }) => Object.freeze({
+                    uri: vscode.Uri.file(path.join(rootFsPath, relativePath)),
+                    relativePath,
+                    filename,
+                }));
+                this.log(`[rg] found ${entries.length} content matches`);
+                resolve(Object.freeze(entries));
+            });
+        });
+    }
+    fetch(workspaceFolder) {
+        const rootFsPath = workspaceFolder.uri.fsPath;
+        const { args, environment } = this.ripgrepOptions(['--files', '--follow']);
         this.log(`[rg] running: rg ${args.join(' ')} (cwd: ${rootFsPath})`);
         return new Promise(resolve => {
             (0, child_process_1.execFile)('rg', args, { cwd: rootFsPath, maxBuffer: 50 * 1024 * 1024, env: environment }, (error, stdout, stderr) => {
@@ -127,6 +141,32 @@ class RipgrepInventory {
     }
     log(message) {
         this.output.appendLine(message);
+    }
+    ripgrepOptions(initialArgs) {
+        const config = vscode.workspace.getConfiguration('pathfuzzy');
+        const includeHidden = config.get('includeHidden', false);
+        const defaultExcludes = config.get('defaultExcludes', [
+            'node_modules',
+            '.git',
+            'dist',
+            'out',
+            '.next',
+        ]);
+        const args = [...initialArgs];
+        if (includeHidden) {
+            args.push('--hidden');
+        }
+        for (const exclude of defaultExcludes) {
+            args.push('--glob', `!${exclude}`);
+        }
+        const environment = { ...process.env };
+        environment.PATH = [
+            environment.PATH,
+            '/opt/homebrew/bin',
+            '/usr/local/bin',
+            '/usr/bin',
+        ].filter(Boolean).join(':');
+        return { args, environment };
     }
 }
 exports.RipgrepInventory = RipgrepInventory;

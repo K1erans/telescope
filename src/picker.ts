@@ -63,7 +63,16 @@ export async function openPicker(
       }
 
       const isMultiRoot = (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
-      qp.items = model.update(value, maxResults)
+      const contentQuery = model.contentQuery(value);
+      const rows = contentQuery
+        ? await contentRows(model, inventory, root, value, contentQuery, maxResults)
+        : model.update(value, maxResults);
+
+      if (disposed || !updateGeneration.isCurrent(generation)) {
+        return;
+      }
+
+      qp.items = rows
         .map(row => toQuickPickItem(row, isMultiRoot ? root.name : undefined));
     } catch {
       if (!disposed && updateGeneration.isCurrent(generation)) {
@@ -151,6 +160,18 @@ export async function openPicker(
   });
 
   qp.show();
+}
+
+async function contentRows(
+  model: PickerModel,
+  inventory: RipgrepInventory,
+  root: vscode.WorkspaceFolder,
+  input: string,
+  query: string,
+  maxResults: number
+): Promise<ReturnType<PickerModel['contentMatches']>> {
+  const matches = await inventory.findContent(root, query);
+  return model.contentMatches(input, matches, maxResults);
 }
 
 async function resolveWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {

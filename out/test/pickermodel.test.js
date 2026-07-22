@@ -58,6 +58,49 @@ suite('PickerModel', () => {
         assert.deepStrictEqual(rows.map(row => row.relativePath), ['src/utils/helpers.ts']);
         assert.strictEqual(rows[0].description, 'src/utils/');
     });
+    test('returns content-matching files for a literal multi-word query', () => {
+        const model = (0, pickermodel_1.createPickerModel)(makeFiles([
+            'src/cache.ts',
+            'src/request.ts',
+            'src/config.ts',
+        ]));
+        const rows = fileRows(model.contentMatches('const cache', makeFiles([
+            'src/cache.ts',
+            'src/request.ts',
+        ]), 20));
+        assert.deepStrictEqual(rows.map(row => row.relativePath), [
+            'src/cache.ts',
+            'src/request.ts',
+        ]);
+        assert.deepStrictEqual(fileRows(model.contentMatches('const cache', makeFiles([
+            'src/cache.ts',
+            'src/request.ts',
+        ]), 1)).map(row => row.relativePath), ['src/cache.ts']);
+    });
+    test('uses the scoped portion of a multi-word content query', () => {
+        const model = (0, pickermodel_1.createPickerModel)(makeFiles([
+            'src/cache.ts',
+            'src/request.ts',
+            'test/cache.test.ts',
+        ]));
+        assert.strictEqual(model.contentQuery('src/const cache'), 'const cache');
+        assert.deepStrictEqual(fileRows(model.contentMatches('src/const cache', makeFiles([
+            'src/cache.ts',
+            'src/request.ts',
+            'test/cache.test.ts',
+        ]), 20)).map(row => row.relativePath), ['src/cache.ts', 'src/request.ts']);
+    });
+    test('shows a content-specific empty state when no files match', () => {
+        const model = (0, pickermodel_1.createPickerModel)(makeFiles(['src/cache.ts']));
+        assert.deepStrictEqual(model.contentMatches('const cache', [], 20), [{
+                kind: 'info',
+                message: 'No files contain that text.',
+            }]);
+    });
+    test('preserves literal whitespace in a content query', () => {
+        const model = (0, pickermodel_1.createPickerModel)(makeFiles(['src/cache.ts']));
+        assert.strictEqual(model.contentQuery(' const cache '), ' const cache ');
+    });
     test('treats an invalid directory prefix as the query', () => {
         const model = (0, pickermodel_1.createPickerModel)(makeFiles(['src/main.ts']));
         assert.deepStrictEqual(model.update('not-a-directory/', 20), []);

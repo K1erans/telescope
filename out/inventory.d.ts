@@ -11,7 +11,9 @@ export declare class RipgrepInventory implements vscode.Disposable {
     constructor();
     dispose(): void;
     load(workspaceFolder: vscode.WorkspaceFolder): Promise<readonly InventoryEntry[]>;
+    findContent(workspaceFolder: vscode.WorkspaceFolder, query: string): Promise<readonly InventoryEntry[]>;
     private fetch;
     private log;
+    private ripgrepOptions;
 }
 //# sourceMappingURL=inventory.d.ts.map

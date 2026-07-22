@@ -51,33 +51,59 @@ export class RipgrepInventory implements vscode.Disposable {
     return files;
   }
 
-  private fetch(workspaceFolder: vscode.WorkspaceFolder): Promise<readonly InventoryEntry[]> {
-    const config = vscode.workspace.getConfiguration('pathfuzzy');
-    const includeHidden = config.get<boolean>('includeHidden', false);
-    const defaultExcludes = config.get<string[]>('defaultExcludes', [
-      'node_modules',
-      '.git',
-      'dist',
-      'out',
-      '.next',
-    ]);
+  findContent(
+    workspaceFolder: vscode.WorkspaceFolder,
+    query: string
+  ): Promise<readonly InventoryEntry[]> {
     const rootFsPath = workspaceFolder.uri.fsPath;
-    const args = ['--files', '--follow'];
+    const { args, environment } = this.ripgrepOptions([
+      '--files-with-matches',
+      '--fixed-strings',
+      '--follow',
+    ]);
+    args.push('--', query);
 
-    if (includeHidden) {
-      args.push('--hidden');
-    }
-    for (const exclude of defaultExcludes) {
-      args.push('--glob', `!${exclude}`);
-    }
+    this.log(`[rg] searching for content: ${JSON.stringify(query)} (cwd: ${rootFsPath})`);
 
-    const environment = { ...process.env };
-    environment.PATH = [
-      environment.PATH,
-      '/opt/homebrew/bin',
-      '/usr/local/bin',
-      '/usr/bin',
-    ].filter(Boolean).join(':');
+    return new Promise(resolve => {
+      execFile(
+        'rg',
+        args,
+        { cwd: rootFsPath, maxBuffer: 50 * 1024 * 1024, env: environment },
+        (error, stdout, stderr) => {
+          if (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+              this.log(`[rg] error: ${error.message}`);
+              void vscode.window.showErrorMessage(
+                'PathFuzzy: ripgrep (rg) not found. Install ripgrep and ensure rg is on PATH.'
+              );
+            } else if ((error as { code?: number }).code !== 1) {
+              this.log(`[rg] error: ${error.message}`);
+              if (stderr) {
+                this.log(`[rg] stderr: ${stderr}`);
+              }
+            }
+            resolve([]);
+            return;
+          }
+
+          const paths = parseRipgrepPaths(stdout);
+          const entries = paths.map(({ relativePath, filename }) => Object.freeze({
+            uri: vscode.Uri.file(path.join(rootFsPath, relativePath)),
+            relativePath,
+            filename,
+          }));
+
+          this.log(`[rg] found ${entries.length} content matches`);
+          resolve(Object.freeze(entries));
+        }
+      );
+    });
+  }
+
+  private fetch(workspaceFolder: vscode.WorkspaceFolder): Promise<readonly InventoryEntry[]> {
+    const rootFsPath = workspaceFolder.uri.fsPath;
+    const { args, environment } = this.ripgrepOptions(['--files', '--follow']);
 
     this.log(`[rg] running: rg ${args.join(' ')} (cwd: ${rootFsPath})`);
 
@@ -117,5 +143,38 @@ export class RipgrepInventory implements vscode.Disposable {
 
   private log(message: string): void {
     this.output.appendLine(message);
+  }
+
+  private ripgrepOptions(initialArgs: string[]): {
+    args: string[];
+    environment: NodeJS.ProcessEnv;
+  } {
+    const config = vscode.workspace.getConfiguration('pathfuzzy');
+    const includeHidden = config.get<boolean>('includeHidden', false);
+    const defaultExcludes = config.get<string[]>('defaultExcludes', [
+      'node_modules',
+      '.git',
+      'dist',
+      'out',
+      '.next',
+    ]);
+    const args = [...initialArgs];
+
+    if (includeHidden) {
+      args.push('--hidden');
+    }
+    for (const exclude of defaultExcludes) {
+      args.push('--glob', `!${exclude}`);
+    }
+
+    const environment = { ...process.env };
+    environment.PATH = [
+      environment.PATH,
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/usr/bin',
+    ].filter(Boolean).join(':');
+
+    return { args, environment };
   }
 }

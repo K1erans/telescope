@@ -28,11 +28,18 @@ export interface FileRow {
 
 export interface PickerModel {
   update(input: string, maxResults: number): readonly PickerRow[];
+  contentQuery(input: string): string | undefined;
+  contentMatches(
+    input: string,
+    matches: readonly PickerFile[],
+    maxResults: number
+  ): readonly PickerRow[];
 }
 
 interface InventoryIndex {
   readonly validDirectories: ReadonlySet<string>;
   readonly filesByScope: ReadonlyMap<string, readonly IndexedFile[]>;
+  readonly filesByPath: ReadonlyMap<string, IndexedFile>;
   readonly rootAlphabetical: readonly IndexedFile[];
 }
 
@@ -92,11 +99,46 @@ export function createPickerModel(files: readonly PickerFile[]): PickerModel {
       return Object.freeze(rankFiles(candidates, scope, limit)
         .map(({ file }) => toFileRow(file, scope.prefix)));
     },
+
+    contentQuery(input: string): string | undefined {
+      const query = parseScope(input, inventory.validDirectories).query;
+      return /\s/.test(query) ? query : undefined;
+    },
+
+    contentMatches(
+      input: string,
+      matches: readonly PickerFile[],
+      maxResults: number
+    ): readonly PickerRow[] {
+      const limit = Math.max(0, Math.floor(maxResults));
+      if (limit === 0) {
+        return emptyRows;
+      }
+
+      const scope = parseScope(input, inventory.validDirectories);
+      const indexedMatches = matches
+        .map(match => inventory.filesByPath.get(normalizePath(match.relativePath)))
+        .filter((file): file is IndexedFile => file !== undefined)
+        .filter(file => file.relativePath.startsWith(scope.prefix))
+        .sort(compareFiles);
+
+      if (indexedMatches.length === 0) {
+        return Object.freeze([Object.freeze({
+          kind: 'info',
+          message: 'No files contain that text.',
+        })]);
+      }
+
+      return Object.freeze(indexedMatches
+        .slice(0, limit)
+        .map(file => toFileRow(file, scope.prefix)));
+    },
   };
 }
 
 function buildInventoryIndex(files: readonly PickerFile[]): InventoryIndex {
   const filesByScope = new Map<string, IndexedFile[]>();
+  const filesByPath = new Map<string, IndexedFile>();
   filesByScope.set('', []);
   const validDirectories = new Set<string>();
 
@@ -109,6 +151,7 @@ function buildInventoryIndex(files: readonly PickerFile[]): InventoryIndex {
       lowerFilename: source.filename.toLowerCase(),
     });
     filesByScope.get('')!.push(file);
+    filesByPath.set(relativePath, file);
 
     let slashIndex = relativePath.indexOf('/');
     while (slashIndex !== -1) {
@@ -132,6 +175,7 @@ function buildInventoryIndex(files: readonly PickerFile[]): InventoryIndex {
   return {
     validDirectories,
     filesByScope,
+    filesByPath,
     rootAlphabetical,
   };
 }
